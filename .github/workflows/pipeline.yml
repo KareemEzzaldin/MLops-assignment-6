@@ -20,28 +20,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mlflow dvc[s3] pandas scikit-learn
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Pull Data from DVC
-        run: dvc pull
-        env:
-          DVC_REMOTE_ACCESS_KEY_ID: ${{ secrets.DVC_KEY }}
-          DVC_REMOTE_SECRET_ACCESS_KEY: ${{ secrets.DVC_SECRET }}
+          pip install mlflow pandas scikit-learn
 
       - name: Train and Log to MLflow
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
         run: python train.py
-
-      - name: Export Model Info
-        run: |
-          if [ -f model_info.txt ]; then
-            echo "Model info found"
-          else
-            echo "Error: model_info.txt not created"
-            exit 1
-          fi
 
       - name: Persist Model Info
         uses: actions/upload-artifact@v4
