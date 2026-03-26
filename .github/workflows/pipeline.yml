@@ -1,0 +1,73 @@
+name: ML Model CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install mlflow dvc[s3] # أو حسب الـ remote بتاعك
+          pip install -r requirements.txt
+
+      - name: Pull Data from DVC
+        run: dvc pull
+        env:
+          DVC_REMOTE_ACCESS_KEY_ID: ${{ secrets.DVC_KEY }}
+          DVC_REMOTE_SECRET_ACCESS_KEY: ${{ secrets.DVC_SECRET }}
+
+      - name: Train and Log to MLflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: python train.py
+
+      - name: Export Model Info
+        run: |
+          echo "RUN_ID=$(python -c 'import mlflow; print(mlflow.active_run().info.run_id if mlflow.active_run() else "no_id")')" > model_info.txt
+
+      - name: Persist Model Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-info
+          path: model_info.txt
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Model Info
+        uses: actions/download-artifact@v4
+        with:
+          name: model-info
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check Performance Threshold
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: python check_threshold.py
+
+      - name: Mock Docker Build
+        if: success()
+        run: |
+          echo "Building Docker image for Run ID: $(cat model_info.txt)"
+          docker build --build-arg RUN_ID=$(cat model_info.txt) -t my-model:latest .
