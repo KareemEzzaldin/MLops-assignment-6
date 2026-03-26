@@ -1,18 +1,24 @@
 import mlflow
 import os
+import sys
 
-with open("model_info.txt", "r") as f:
-    run_id = f.read().replace("RUN_ID=", "").strip()
+def verify_model():
+    if not os.path.exists("model_info.txt"):
+        sys.exit(1)
 
-client = mlflow.tracking.MlflowClient()
-run = client.get_run(run_id)
-accuracy = run.data.metrics.get("accuracy", 0)
+    with open("model_info.txt", "r") as f:
+        run_id = f.read().strip()
 
-print(f"Model Accuracy: {accuracy}")
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+    client = mlflow.tracking.MlflowClient()
+    
+    run = client.get_run(run_id)
+    accuracy = run.data.metrics.get("accuracy", 0)
 
-if accuracy < 0.85:
-    print("Accuracy below threshold! Failing pipeline.")
-    exit(1)
-else:
-    print("Accuracy passed! Proceeding to deploy.")
-    exit(0)
+    if accuracy >= 0.85:
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+if __name__ == "__main__":
+    verify_model()
