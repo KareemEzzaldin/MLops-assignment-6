@@ -20,8 +20,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mlflow dvc[s3] # أو حسب الـ remote بتاعك
-          pip install -r requirements.txt
+          pip install mlflow dvc[s3] pandas scikit-learn
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Pull Data from DVC
         run: dvc pull
@@ -36,7 +36,12 @@ jobs:
 
       - name: Export Model Info
         run: |
-          echo "RUN_ID=$(python -c 'import mlflow; print(mlflow.active_run().info.run_id if mlflow.active_run() else "no_id")')" > model_info.txt
+          if [ -f model_info.txt ]; then
+            echo "Model info found"
+          else
+            echo "Error: model_info.txt not created"
+            exit 1
+          fi
 
       - name: Persist Model Info
         uses: actions/upload-artifact@v4
@@ -61,6 +66,9 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install dependencies
+        run: pip install mlflow
+
       - name: Check Performance Threshold
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
@@ -69,5 +77,6 @@ jobs:
       - name: Mock Docker Build
         if: success()
         run: |
-          echo "Building Docker image for Run ID: $(cat model_info.txt)"
-          docker build --build-arg RUN_ID=$(cat model_info.txt) -t my-model:latest .
+          RUN_ID=$(cat model_info.txt)
+          echo "Building Docker image for Run ID: $RUN_ID"
+          docker build --build-arg RUN_ID=$RUN_ID -t my-model:latest .
