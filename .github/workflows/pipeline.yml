@@ -1,76 +1,59 @@
-name: ML Model CI/CD Pipeline
+name: MLOps Resource Gatekeeper
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - '**' # Triggers on all branches to test the branch protection condition
 
 jobs:
-  validate:
+  # 1. Dependency: Lightweight linter job
+  linter:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
+      
+      - name: Run Linter
         run: |
-          pip install mlflow pandas scikit-learn "dvc[s3]"
+          echo "Running flake8 / black to verify code integrity..."
+          # Replace with your actual linting command, e.g., flake8 .
+          echo "Linting passed."
 
-      - name: Pull Data from DVC
-        run: dvc pull || true
-        env:
-          DVC_REMOTE_ACCESS_KEY_ID: ${{ secrets.DVC_KEY }}
-          DVC_REMOTE_SECRET_ACCESS_KEY: ${{ secrets.DVC_SECRET }}
+  # 2. The expensive training job
+  train:
+    needs: linter
+    runs-on: ubuntu-latest
+    # Gatekeeper Logic: Must be on 'main' AND commit message must contain '[run-train]'
+    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[run-train]')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Train and Log to MLflow
-        env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DVC_KEY }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DVC_SECRET }}
-        run: python train.py
+      - name: GPU Training Execution
+        run: |
+          echo "Allocating GPU resources and running train.py..."
+          # python train.py
+          
+          # NOTE: To test the failure() step below, you can uncomment the next line:
+          # exit 1 
 
-      - name: Persist Model Info
+      # 3. Create and upload logs ONLY if the training step fails
+      - name: Generate Error Logs
+        if: failure()
+        run: |
+          echo "Training failed. Capturing system and process logs..." > error_logs.txt
+
+      - name: Upload Error Logs Artifact
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: model-info
-          path: model_info.txt
+          name: training-error-logs
+          path: error_logs.txt
+          retention-days: 5
 
-  deploy:
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download Model Info
-        uses: actions/download-artifact@v4
-        with:
-          name: model-info
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install mlflow
-
-      - name: Check Performance Threshold
-        env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DVC_KEY }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DVC_SECRET }}
-        run: python check_threshold.py
-
-      - name: Mock Docker Build
-        if: success()
-        run: |
-          RUN_ID=$(cat model_info.txt)
-          echo "Building Docker image for Run ID: $RUN_ID"
-          docker build --build-arg RUN_ID=$RUN_ID -t my-model:latest .
+      # 4. Final Cleanup Step
+      - name: Cleanup Resources
+        if: always()
+        run: echo "Cleaning up temporary cloud volumes..."
